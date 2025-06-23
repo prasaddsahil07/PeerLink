@@ -166,10 +166,24 @@ public class FileController {
                 String contentTypeMarker = "Content-Type: ";
 
                 int contentTypeStart = dataAsString.indexOf(contentTypeMarker, filenameEnd);
-
-                if(contentTypeStart != -1){
+                String contentType = "application/octet-stream";
+                if (contentTypeStart != -1) {
                     contentTypeStart += contentTypeMarker.length();
+                    int contentTypeEnd = dataAsString.indexOf("\r\n", contentTypeStart);
+                    contentType = dataAsString.substring(contentTypeStart, contentTypeEnd);
                 }
+
+                String headerEndMarker = "\r\n\r\n";        // it is standart in HTTP1.1
+                int headerEnd = dataAsString.indexOf(headerEndMarker);
+                if (headerEnd == -1) {
+                    return null;
+                }
+
+                int contentStart = headerEnd + headerEndMarker.length();
+
+                byte[] boundaryBytes = ("\r\n--"+boundary+"--").getBytes();
+                int contentEnd = findSequence(data, boundaryBytes);
+
 
             } catch (Exception e) {
                 
