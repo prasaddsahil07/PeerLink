@@ -2,9 +2,11 @@ package p2p.controller;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -122,10 +124,37 @@ public class FileController {
                     try(OutputStream oos = exchange.getResponseBody()) {
                         oos.write(response.getBytes());
                     }
-                    return;
+                    return ;
                 }
-            } catch (Exception e) {
 
+                String fileName = result.fileName;
+                if (fileName == null || fileName.trim().isEmpty()) {
+                    fileName = "unnamed-file";
+                }
+                String uniqueFileName = UUID.randomUUID().toString() + "_" + new File(fileName).getName();
+                String filePath = uploadDir + File.separator + uniqueFileName;
+
+                try (FileOutputStream fos = new FileOutputStream(filePath)) {
+                    fos.write(result.fileContent);  // temporarily write the file content on the server
+                }
+
+                // fileSharer will offer a port to the user who uploaded the file
+                int port = fileSharer.offerFile(filePath);  // providing the absolute path to the fileSharer
+                new Thread(() -> fileSharer.startFileServer(port)).start(); // thread handles a sharing task
+                String jsonResponse = "{\"port\": " + port + "}";   // sending json format after stringify
+                headers.add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, jsonResponse.getBytes().length);
+                try (OutputStream oos = exchange.getResponseBody()) {
+                    oos.write(jsonResponse.getBytes());
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error processing file upload: "+e.getMessage());
+                String response = "Server error: " + e.getMessage();
+                exchange.sendResponseHeaders(500, response.getBytes().length);
+                try (OutputStream oos = exchange.getResponseBody()) {
+                    oos.write(response.getBytes());
+                }
             }
 
         }
@@ -195,7 +224,7 @@ public class FileController {
 
                 if (contentEnd == -1) {
                     boundaryBytes = ("\r\n--" + boundary).getBytes();     // try to find the end without "--"
-                    contentEnd = findSequence(data, sequence, contentStart);
+                    contentEnd = findSequence(data, boundaryBytes, contentStart);
                 }
 
                 if (contentEnd == -1) {
