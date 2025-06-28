@@ -2,10 +2,13 @@ package p2p.controller;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -118,13 +121,13 @@ public class FileController {
                 Multiparser parser = new Multiparser(requestData, boundary);
                 Multiparser.ParseResult result = parser.parse();   // this will return fileName and fileContent
 
-                if(result == null){
+                if (result == null) {
                     String response = "Bad request: Could not parse file content";
                     exchange.sendResponseHeaders(400, response.getBytes().length);
-                    try(OutputStream oos = exchange.getResponseBody()) {
+                    try (OutputStream oos = exchange.getResponseBody()) {
                         oos.write(response.getBytes());
                     }
-                    return ;
+                    return;
                 }
 
                 String fileName = result.fileName;
@@ -149,7 +152,7 @@ public class FileController {
                 }
 
             } catch (Exception e) {
-                System.err.println("Error processing file upload: "+e.getMessage());
+                System.err.println("Error processing file upload: " + e.getMessage());
                 String response = "Server error: " + e.getMessage();
                 exchange.sendResponseHeaders(500, response.getBytes().length);
                 try (OutputStream oos = exchange.getResponseBody()) {
@@ -167,10 +170,66 @@ public class FileController {
             Headers headers = exchange.getResponseHeaders();
             headers.add("Access-Control-Allow-Origin", "*");
 
-            if (!exchange.getRequestMethod().equalsIgnoreCase("POST")) {
+            if (!exchange.getRequestMethod().equalsIgnoreCase("GET")) {
                 String response = "Methos not allowed";
                 exchange.sendResponseHeaders(405, response.getBytes().length);
 
+                try (OutputStream oos = exchange.getResponseBody()) {
+                    oos.write(response.getBytes());
+                }
+                return;
+            }
+
+            String path = exchange.getRequestURI().getPath();   // the url basically containing the port as param
+            String portStr = path.substring(path.lastIndexOf('/' + 1));   // extracting the port number in string
+
+            try {
+                int port = Integer.parseInt(portStr);   // converting the port into int from string
+
+                try (Socket socket = new Socket("localhost", port)) {
+                    InputStream socketInput = socket.getInputStream();
+                    File tempFile = File.createTempFile("download-", ".tmp");   // temporary file to hold data of file sent from fileSharer before sending back to the requested user
+                    String fileName = "downloaded-file";
+
+                    try (FileOutputStream fos = new FileOutputStream(tempFile)) {   // reading the data from fileSharer to my temp file
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+                        ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
+                        int b;
+                        while ((b = socketInput.read()) != -1) {
+                            if (b == '\n') {
+                                break;
+                            }
+                            headerBaos.write(b);
+                        }
+                        String header = headerBaos.toString().trim();
+
+                        if (header.startsWith("Filename: ")) {
+                            fileName = header.substring("Filename: ".length());
+                        }
+
+                        while ((bytesRead = socketInput.read(buffer)) != -1) {
+                            fos.write(buffer, 0, bytesRead);
+                        }
+                    }
+                    headers.add("Content-Disposition: ", "attachment: filename=\"" + fileName + "\"");
+                    headers.add("Content-Type", "application/octet-stream");
+                    exchange.sendResponseHeaders(200, tempFile.length());
+                    try (OutputStream oos = exchange.getResponseBody()) {
+                        FileInputStream fis = new FileInputStream(tempFile); // write the file content onto the socket to send the user
+                        byte[] buffer = new byte[4096];
+                        int bytesRead;
+                        while ((bytesRead = fis.read(buffer)) != -1) {
+                            oos.write(buffer, 0, bytesRead);
+                        }
+                    }
+                    tempFile.delete();
+                }
+            } catch (Exception e) {
+                System.out.println("Error downloading the file: "+e.getMessage());
+                String response = "Error downloading file "+e.getMessage();
+                headers.add("Content-Type", "text/plain");
+                exchange.sendResponseHeaders(500, response.getBytes().length);
                 try (OutputStream oos = exchange.getResponseBody()) {
                     oos.write(response.getBytes());
                 }
