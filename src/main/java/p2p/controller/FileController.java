@@ -181,7 +181,7 @@ public class FileController {
             }
 
             String path = exchange.getRequestURI().getPath();   // the url basically containing the port as param
-            String portStr = path.substring(path.lastIndexOf('/' + 1));   // extracting the port number in string
+            String portStr = path.substring(path.lastIndexOf('/') + 1);   // extracting the port number in string
 
             try {
                 int port = Integer.parseInt(portStr);   // converting the port into int from string
@@ -212,7 +212,7 @@ public class FileController {
                             fos.write(buffer, 0, bytesRead);
                         }
                     }
-                    headers.add("Content-Disposition: ", "attachment: filename=\"" + fileName + "\"");
+                    headers.add("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
                     headers.add("Content-Type", "application/octet-stream");
                     exchange.sendResponseHeaders(200, tempFile.length());
                     try (OutputStream oos = exchange.getResponseBody()) {
@@ -251,12 +251,13 @@ public class FileController {
         public ParseResult parse() {
             try {
                 String dataAsString = new String(data); // convert the byte array data into string, only pdf or text file (not blob object)
-                String fileNameMarker = "fileName=\"";
+                String fileNameMarker = "filename=\"";
                 int filenameStart = dataAsString.indexOf(fileNameMarker);
                 if (filenameStart == -1) {
                     return null;    // filenameStart doesn't exist
                 }
 
+                filenameStart += fileNameMarker.length();
                 int filenameEnd = dataAsString.indexOf("\"", filenameStart);
                 String fileName = dataAsString.substring(filenameStart, filenameEnd);
 
