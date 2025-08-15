@@ -7,26 +7,47 @@ interface UploadResponse {
   port: number;
 }
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
+
 export default function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedPort, setUploadedPort] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
+    if (rejectedFiles.length > 0) {
+      const rejection = rejectedFiles[0];
+      if (rejection.errors[0]?.code === 'file-too-large') {
+        setError('File too large. Maximum size is 100MB.');
+      } else {
+        setError('Invalid file type. Please select a valid file.');
+      }
+      return;
+    }
+
     if (acceptedFiles.length > 0) {
-      setFile(acceptedFiles[0]);
+      const selectedFile = acceptedFiles[0];
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        setError('File too large. Maximum size is 100MB.');
+        return;
+      }
+      setFile(selectedFile);
       setError(null);
       setUploadedPort(null);
+      setUploadProgress(0);
     }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'],
-      'text/*': ['.txt', '.md', '.json', '.xml', '.csv'],
+      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff'],
       'application/pdf': ['.pdf'],
+      'audio/*': ['.mp3', '.wav', '.ogg', '.m4a', '.aac'],
+      'video/*': ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'],
+      'text/*': ['.txt', '.md', '.json', '.xml', '.csv'],
       'application/msword': ['.doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/vnd.ms-excel': ['.xls'],
@@ -34,6 +55,7 @@ export default function FileUpload() {
       'application/zip': ['.zip'],
       'application/x-rar-compressed': ['.rar'],
     },
+    maxSize: MAX_FILE_SIZE,
     multiple: false,
   });
 
@@ -42,25 +64,40 @@ export default function FileUpload() {
 
     setIsUploading(true);
     setError(null);
+    setUploadProgress(0);
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:8080/upload', {
-        method: 'POST',
-        body: formData,
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(progress);
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          const data: UploadResponse = JSON.parse(xhr.responseText);
+          setUploadedPort(data.port);
+        } else {
+          setError(`Upload failed: ${xhr.statusText}`);
+        }
+        setIsUploading(false);
+      });
 
-      const data: UploadResponse = await response.json();
-      setUploadedPort(data.port);
+      xhr.addEventListener('error', () => {
+        setError('Upload failed. Please try again.');
+        setIsUploading(false);
+      });
+
+      xhr.open('POST', 'http://localhost:8080/upload');
+      xhr.send(formData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
       setIsUploading(false);
     }
   };
@@ -80,6 +117,15 @@ export default function FileUpload() {
     setFile(null);
     setUploadedPort(null);
     setError(null);
+    setUploadProgress(0);
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   if (uploadedPort) {
@@ -113,7 +159,8 @@ export default function FileUpload() {
               <p className="font-medium text-yellow-800 mb-1">Important Notes:</p>
               <ul className="text-sm text-yellow-700 space-y-1">
                 <li>• This code expires in 5 minutes</li>
-                <li>• File will be deleted after first download</li>
+                <li>• Multiple users can download within the time limit</li>
+                <li>• File will be deleted after expiry</li>
                 <li>• Share the code quickly with intended recipients</li>
               </ul>
             </div>
@@ -152,7 +199,7 @@ export default function FileUpload() {
               Drag & drop a file here, or <span className="text-blue-600 font-medium">click to browse</span>
             </p>
             <p className="text-sm text-gray-500">
-              Supports: Images, PDFs, Documents, Text files, Archives
+              Supports: Images, PDFs, Documents, Audio, Video, Archives (Max: 100MB)
             </p>
           </div>
         )}
@@ -166,7 +213,7 @@ export default function FileUpload() {
               <div>
                 <p className="font-medium text-gray-800">{file.name}</p>
                 <p className="text-sm text-gray-600">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {formatFileSize(file.size)}
                 </p>
               </div>
             </div>
@@ -176,6 +223,21 @@ export default function FileUpload() {
             >
               ✕
             </button>
+          </div>
+        </div>
+      )}
+
+      {isUploading && (
+        <div className="mt-6">
+          <div className="flex justify-between text-sm text-gray-600 mb-2">
+            <span>Uploading...</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
           </div>
         </div>
       )}
@@ -198,7 +260,7 @@ export default function FileUpload() {
         {isUploading ? (
           <div className="flex items-center justify-center gap-2">
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            Uploading...
+            Uploading... {uploadProgress}%
           </div>
         ) : (
           'Upload File'

@@ -16,6 +16,7 @@ public class FileSharer {
      private final HashMap<String, Long> fileUploadTimes = new HashMap<>();
  
      private static final long FILE_TTL_MS = 5 * 60 * 1000L; // 5 minutes
+     private static final int CHUNK_SIZE = 64 * 1024; // 64KB chunks for better memory management
  
      public FileSharer(){
           availableFiles = new HashMap<>();
@@ -131,20 +132,44 @@ public class FileSharer {
                       return;
                   }
  
-                  try(FileInputStream fis = new FileInputStream(filePath)){
+                                    try(FileInputStream fis = new FileInputStream(filePath)){
                       OutputStream oos = clientSocket.getOutputStream();
- 
+
                       String fileName = file.getName();
-                      String header  = "Filename: " + fileName + "\n";
+                      long fileSize = file.length();
+                      
+                      // Send header with file info
+                      String header = String.format("Filename: %s\nSize: %d\n", fileName, fileSize);
                       oos.write(header.getBytes());
- 
-                      byte[] buffer = new byte[4096];
-                      int byteRead;
-                      while((byteRead = fis.read(buffer)) != -1){
-                          oos.write(buffer,0,byteRead);
+
+                      // Send file in chunks with progress tracking
+                      byte[] buffer = new byte[CHUNK_SIZE];
+                      long totalBytesSent = 0;
+                      int chunkCount = 0;
+                      
+                      System.out.println("Starting chunked transfer of " + fileName + " (" + fileSize + " bytes)");
+                      
+                      while(true) {
+                          int bytesRead = fis.read(buffer);
+                          if (bytesRead == -1) break;
+                          
+                          oos.write(buffer, 0, bytesRead);
+                          oos.flush(); // Ensure chunks are sent immediately
+                          
+                          totalBytesSent += bytesRead;
+                          chunkCount++;
+                          
+                          // Log progress every 10 chunks or when complete
+                          if (chunkCount % 10 == 0 || totalBytesSent == fileSize) {
+                              double progress = (double) totalBytesSent / fileSize * 100;
+                              System.out.printf("File %s: %d/%d bytes sent (%.1f%%) - %d chunks%n", 
+                                  fileName, totalBytesSent, fileSize, progress, chunkCount);
+                          }
                       }
-                      System.out.println("File " + fileName + " sent to " + clientSocket.getInetAddress());
- 
+                      
+                      System.out.println("File " + fileName + " sent to " + clientSocket.getInetAddress() + 
+                          " in " + chunkCount + " chunks");
+
                       if (deleteAfterSend) {
                           if (file.delete()) {
                               System.out.println("File deleted successfully: " + fileName);

@@ -31,6 +31,7 @@ public class FileController {
     private final String uploadDir;
     private final ExecutorService executorService;
     private final ScheduledExecutorService cleanScheduler = Executors.newSingleThreadScheduledExecutor();
+    private static final long MAX_FILE_SIZE = 100 * 1024 * 1024L; // 100MB limit
 
     public FileController(int port) throws IOException {
         this.fileSharer = new FileSharer();
@@ -48,8 +49,7 @@ public class FileController {
         server.createContext("/upload", new UploadHandler());
         server.createContext("/download",new DownloadHandler());
         server.createContext("/",new CORSHandler());
-        server.setExecutor(executorService);
-    }
+        server.setExecutor(executorService);    }
 
     public void start(){
         server.start();
@@ -125,7 +125,7 @@ public class FileController {
             Headers headers = exchange.getResponseHeaders();
             headers.add("Access-Control-Allow-Origin","*");
             headers.add("Access-Control-Allow-Methods","GET, POST, OPTIONS");
-            headers.add("Access-Control-Allow-Headers","Content-Type,Authorization");
+            headers.add("Access-Control-Allow-Headers","Content-Type,Authorization,X-Requested-With");
 
             if(exchange.getRequestMethod().equals("OPTIONS")){
                 exchange.sendResponseHeaders(204,-1);
@@ -138,7 +138,6 @@ public class FileController {
             }
         }
     }
-
 //    POST /upload HTTP/1.1
 //    Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryABC123 \r\n
 //
@@ -257,7 +256,12 @@ public class FileController {
             Headers headers = exchange.getResponseHeaders();
             headers.add("Access-Control-Allow-Origin","*");
             headers.add("Access-Control-Allow-Methods", "POST, OPTIONS");
-            headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization");
+            headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Requested-With");
+
+            if(exchange.getRequestMethod().equals("OPTIONS")){
+                exchange.sendResponseHeaders(204,-1);
+                return;
+            }
 
             if(!exchange.getRequestMethod().equalsIgnoreCase("POST")){
                 String response = "Method not allowed";
@@ -293,6 +297,16 @@ public class FileController {
                 if(result == null){
                     String response = "Bad Request: Could not parse file content";
                     exchange.sendResponseHeaders(400,response.getBytes().length);
+                    try(OutputStream os = exchange.getResponseBody()){
+                        os.write(response.getBytes());
+                    }
+                    return;
+                }
+
+                // Check file size
+                if(result.fileContent.length > MAX_FILE_SIZE){
+                    String response = "File too large. Maximum size is 100MB";
+                    exchange.sendResponseHeaders(413,response.getBytes().length);
                     try(OutputStream os = exchange.getResponseBody()){
                         os.write(response.getBytes());
                     }
@@ -360,22 +374,39 @@ public class FileController {
 
                     File tempFile = File.createTempFile("download-",".tmp");
                     String filename = "downloaded-file";
+                    long expectedSize = 0;
 
                     try(FileOutputStream fos = new FileOutputStream(tempFile)){
                         byte[] buffer = new byte[4096];
                         int bytesRead;
 
+                        // Read header lines
                         ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
-                        int b;
-                        while((b = socketInput.read())!=-1){
-                            if(b == '\n') break;
-                            headerBaos.write(b);
+                        
+                        // Read header lines (Filename and Size)
+                        int lineCount = 0;
+                        while(lineCount < 2) {
+                            ByteArrayOutputStream lineBaos = new ByteArrayOutputStream();
+                            int b;
+                            while((b = socketInput.read())!=-1){
+                                if(b == '\n') break;
+                                lineBaos.write(b);
+                            }
+                            
+                            String line = lineBaos.toString().trim();
+                            if(line.startsWith("Filename: ")){
+                                filename = line.substring("Filename: ".length());
+                            } else if(line.startsWith("Size: ")){
+                                try {
+                                    expectedSize = Long.parseLong(line.substring("Size: ".length()));
+                                } catch (NumberFormatException e) {
+                                    System.err.println("Invalid file size in header: " + line);
+                                }
+                            }
+                            lineCount++;
                         }
-
-                        String header = headerBaos.toString().trim();
-                        if(header.startsWith("Filename: ")){
-                            filename = header.substring("Filename: ".length());
-                        }else{
+                        
+                        if(filename.equals("downloaded-file")){
                             tempFile.delete();
                             String response = "File no longer available";
                             exchange.sendResponseHeaders(404, response.getBytes().length);
@@ -386,10 +417,24 @@ public class FileController {
                         }
 
                         long totalBytesRead = 0;
+                        int chunkCount = 0;
+                        
+                        System.out.println("Starting chunked download of " + filename + " (expected: " + expectedSize + " bytes)");
+                        
                         while((bytesRead = socketInput.read(buffer)) != -1){
                             fos.write(buffer,0,bytesRead);
                             totalBytesRead += bytesRead;
+                            chunkCount++;
+                            
+                            // Log progress every 10 chunks or when complete
+                            if (chunkCount % 10 == 0 || totalBytesRead == expectedSize) {
+                                double progress = expectedSize > 0 ? (double) totalBytesRead / expectedSize * 100 : 0;
+                                System.out.printf("Download %s: %d/%d bytes received (%.1f%%) - %d chunks%n", 
+                                    filename, totalBytesRead, expectedSize, progress, chunkCount);
+                            }
                         }
+                        
+                        System.out.println("Download completed: " + filename + " (" + totalBytesRead + " bytes in " + chunkCount + " chunks)");
 
                         if(totalBytesRead == 0) {
                             tempFile.delete();
