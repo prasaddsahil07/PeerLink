@@ -1,1 +1,15 @@
-node_modules
+# Maven / Java
+target/
+*.class
+*.log
+*.jar
+*.war
+*.ear
+
+# Next.js
+ui/node_modules/
+ui/.next/
+ui/out/
+ui/build/
+ui/dist/
+ui/.env

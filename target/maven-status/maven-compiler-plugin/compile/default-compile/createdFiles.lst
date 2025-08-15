@@ -2,9 +2,9 @@ p2p\controller\FileController.class
 p2p\service\FileSharer.class
 p2p\controller\FileController$DownloadHandler.class
 p2p\controller\FileController$UploadHandler.class
+p2p\controller\FileController$MultiParser.class
 p2p\App.class
 p2p\controller\FileController$CORSHandler.class
-p2p\controller\FileController$Multiparser.class
+p2p\controller\FileController$MultiParser$ParseResult.class
 p2p\service\FileSharer$FileSenderHandler.class
-p2p\controller\FileController$Multiparser$ParseResult.class
 p2p\utils\UploadUtils.class

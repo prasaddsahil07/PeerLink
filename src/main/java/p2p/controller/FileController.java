@@ -9,9 +9,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.io.IOUtils;
 
@@ -23,308 +26,411 @@ import com.sun.net.httpserver.HttpServer;
 import p2p.service.FileSharer;
 
 public class FileController {
-
-    private final FileSharer fileSharer;    // fileController is having "has-a" relation with fileSharer
-    private final HttpServer server;    // built in package (no use of framework)
-    private final String uploadDir;        // tempDir where the server stores the file uploaded by client
+    private final FileSharer fileSharer;
+    private final HttpServer server;
+    private final String uploadDir;
     private final ExecutorService executorService;
+    private final ScheduledExecutorService cleanScheduler = Executors.newSingleThreadScheduledExecutor();
 
     public FileController(int port) throws IOException {
         this.fileSharer = new FileSharer();
-        this.server = HttpServer.create(new InetSocketAddress(port), 0);
-        this.uploadDir = System.getProperty("java.io.tempdir") + File.separator + "peerlink-uploads";
-        this.executorService = Executors.newFixedThreadPool(10);
+        this.server = HttpServer.create(new InetSocketAddress(port),0);
+        this.uploadDir = System.getProperty("java.io.tmpdir") + File.separator + "peerlink-uploads";
+        this.executorService = Executors.newFixedThreadPool(40);
+
+        System.out.println("Upload directory is: " + this.uploadDir);
 
         File uploadDirFile = new File(uploadDir);
-        if (!uploadDirFile.exists()) {
-            uploadDirFile.mkdir();
+        if(!uploadDirFile.exists()){
+            uploadDirFile.mkdirs();
         }
 
         server.createContext("/upload", new UploadHandler());
-        server.createContext("/download", new DownloadHandler());
-        server.createContext("/", new CORSHandler());   // for health check purpose
-        server.setExecutor(executorService);        // allowing server to use the threadpool
+        server.createContext("/download",new DownloadHandler());
+        server.createContext("/",new CORSHandler());
+        server.setExecutor(executorService);
     }
 
-    public void start() {
+    public void start(){
         server.start();
-        System.out.println("API Server started on port: " + server.getAddress().getPort());
+        System.out.println("API server startex on port " + server.getAddress().getPort());
+
+        cleanScheduler.scheduleAtFixedRate(()->{
+            try{
+                System.out.println("Running periodic cleanup");
+                cleanupOldFiles();
+            }catch (Exception ex){
+                System.err.println("Error during cleanup "+ ex.getMessage());
+            }
+        },30,30, TimeUnit.MINUTES);
     }
 
-    public void stop() {
+    public void stop(){
         server.stop(0);
         executorService.shutdown();
+
+        cleanScheduler.shutdown();
+        try{
+            if(!cleanScheduler.awaitTermination(5,TimeUnit.SECONDS)){
+                cleanScheduler.shutdownNow();
+            }
+        }catch (InterruptedException ex){
+            cleanScheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
         System.out.println("API Server stopped");
     }
 
-    private class CORSHandler implements HttpHandler {
+    private void cleanupOldFiles(){
+        File dir = new File(uploadDir);
+        if(!dir.exists() || !dir.isDirectory()){
+            return;
+        }
 
+        File[] files = dir.listFiles();
+        if(files == null) return;
+
+        long now = System.currentTimeMillis();
+        long cutoff = now - (30 * 60 * 1000L);
+
+
+        for (File file : files) {
+            if (file.isFile()) {
+                try {
+                    String canonicalPath = file.getCanonicalPath();
+                    Long uploadTime = fileSharer.getUploadTime(canonicalPath);
+
+                    if (uploadTime != null && uploadTime < cutoff) {
+                        boolean deleted = file.delete();
+                        if (deleted) {
+                            System.out.println("Deleted old file: " + file.getName());
+                            fileSharer.removeFilePath(canonicalPath);
+                            fileSharer.removeUploadTimestamp(canonicalPath);
+                        } else {
+                            System.out.println("Failed to delete: " + file.getName());
+                        }
+                    }
+                } catch (IOException e) {
+                    System.err.println("Error handling file during cleanup: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private class CORSHandler implements HttpHandler{
         @Override
-        public void handle(HttpExchange exchange) throws IOException {
+        public void handle(HttpExchange exchange) throws IOException{
             Headers headers = exchange.getResponseHeaders();
-            headers.add("Access-Control-Allow-Origin", "*");
-            headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+            headers.add("Access-Control-Allow-Origin","*");
+            headers.add("Access-Control-Allow-Methods","GET, POST, OPTIONS");
+            headers.add("Access-Control-Allow-Headers","Content-Type,Authorization");
 
-            if (exchange.getRequestMethod().equalsIgnoreCase("OPTIONS")) {    // only OPTIONS method is handled by CORSHandler
-                exchange.sendResponseHeaders(204, -1);      // status code for : no content
+            if(exchange.getRequestMethod().equals("OPTIONS")){
+                exchange.sendResponseHeaders(204,-1);
                 return;
             }
-
             String response = "NOT FOUND";
-            exchange.sendResponseHeaders(404, response.getBytes().length);
-            try (OutputStream oos = exchange.getResponseBody()) {   // as try block ends, the stram automatically closes
+            exchange.sendResponseHeaders(404,response.getBytes().length);
+            try(OutputStream oos = exchange.getResponseBody()){
                 oos.write(response.getBytes());
             }
         }
     }
 
-    private class UploadHandler implements HttpHandler {
+//    POST /upload HTTP/1.1
+//    Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryABC123 \r\n
+//
+//    ------WebKitFormBoundaryABC123
+//    Content-Disposition: form-data; name="message"
+//
+//    Hello P2P
+//
+//    ------WebKitFormBoundaryABC123
+//    Content-Disposition: form-data; name="myFile"; filename="hello.txt"
+//    Content-Type: text/plain
+//
+//    This is the content of the file.
+//
+//    ------WebKitFormBoundaryABC123--
 
+
+
+
+    private static class MultiParser{
+
+        private final byte[] data;
+        private final String boundary;
+        public MultiParser(byte[] data, String boundary) {
+            this.data = data;
+            this.boundary = boundary;
+        }
+
+        public ParseResult parse(){
+            try{
+                byte[] headerSeparator = {13,10,13,10};
+                int headerEndIndex = findSequence(data,headerSeparator,0);
+                if(headerEndIndex==-1){
+                    System.err.println("MultipartParser: Header separator (\\r\\n\\r\\n) not found.");
+                    return null;
+                }
+
+                int contentStartIndex = headerEndIndex + headerSeparator.length;
+
+                String headers = new String(data,0,headerEndIndex);
+
+                String filename = "unnamed-file";
+                String filenameMarker = "filename=\"";
+                int filenameStart = headers.indexOf(filenameMarker);
+                if (filenameStart != -1) {
+                    filenameStart += filenameMarker.length();
+                    int filenameEnd = headers.indexOf("\"", filenameStart);
+                    if (filenameEnd != -1) {
+                        filename = headers.substring(filenameStart, filenameEnd);
+                    }
+                }
+
+                String contentType = "application/octet-stream";
+                String contentTypeMarker = "Content-Type: ";
+                int contentTypeStart = headers.indexOf(contentTypeMarker);
+                if (contentTypeStart != -1) {
+                    contentTypeStart += contentTypeMarker.length();
+                    int contentTypeEnd = headers.indexOf("\r\n", contentTypeStart);
+                    if (contentTypeEnd != -1) {
+                        contentType = headers.substring(contentTypeStart, contentTypeEnd).trim();
+                    } else {
+                        contentType = headers.substring(contentTypeStart).trim();
+                    }
+                }
+
+                byte[] finalBoundarySeparator = ("\r\n--" + boundary + "--").getBytes();
+                int contentEnd = findSequence(data,finalBoundarySeparator,contentStartIndex);
+
+                if(contentEnd == -1){
+                    byte[] partBoundarySeparator = ("\r\n--" + boundary).getBytes();
+                    contentEnd = findSequence(data,partBoundarySeparator,contentStartIndex);
+                }
+
+                if(contentEnd == -1 || contentEnd <= contentStartIndex){
+                    System.err.println("MultipartParser: Content end boundary not found.");
+                    return null;
+                }
+
+                byte[] fileContent = Arrays.copyOfRange(data, contentStartIndex, contentEnd);
+                return new ParseResult(filename,contentType,fileContent);
+            }catch (Exception ex){
+                System.err.println("Error parsing multipart data: " + ex.getMessage());
+                return null;
+            }
+        }
+
+        private int findSequence(byte[] data, byte[] sequence, int startPos){
+            outer:
+            for(int i = startPos; i<= data.length - sequence.length; i++){
+                for(int j=0;j<sequence.length;j++){
+                    if(data[i+j] != sequence[j]){
+                        continue outer;
+                    }
+                }
+                return i;
+            }
+            return  -1;
+        }
+
+        public static class ParseResult {
+            public final String filename;
+            public final String contentType;
+            public final byte[] fileContent;
+
+            public ParseResult(String filename, String contentType, byte[] fileContent) {
+                this.filename = filename;
+                this.contentType = contentType;
+                this.fileContent = fileContent;
+            }
+        }
+    }
+
+    private class UploadHandler implements HttpHandler{
         @Override
-        public void handle(HttpExchange exchange) throws IOException {
+        public void handle(HttpExchange exchange) throws IOException{
             Headers headers = exchange.getResponseHeaders();
-            headers.add("Access-Control-Allow-Origin", "*");
+            headers.add("Access-Control-Allow-Origin","*");
+            headers.add("Access-Control-Allow-Methods", "POST, OPTIONS");
+            headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization");
 
-            if (!exchange.getRequestMethod().equalsIgnoreCase("POST")) {
-                String response = "Methos not allowed";
-                exchange.sendResponseHeaders(405, response.getBytes().length);
-
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(response.getBytes());
+            if(!exchange.getRequestMethod().equalsIgnoreCase("POST")){
+                String response = "Method not allowed";
+                exchange.sendResponseHeaders(405,response.getBytes().length);
+                try(OutputStream os = exchange.getResponseBody()){
+                    os.write(response.getBytes());
                 }
                 return;
             }
 
-            Headers responseHeaders = exchange.getRequestHeaders();
-            String contentType = responseHeaders.getFirst("Content-Type");
+            Headers requestHeaders = exchange.getRequestHeaders();
+            String contentType = requestHeaders.getFirst("Content-Type");
 
-            if (contentType == null || !contentType.startsWith("multipart/form-data")) {
-                String response = "Bad Request: Content-Type must ne form-data";
-                exchange.sendResponseHeaders(400, response.getBytes().length);
-
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(response.getBytes());
+            if(contentType == null || !contentType.startsWith("multipart/form-data")){
+                String response = "Bad Request: Content-Type must be multipart/form-data";
+                exchange.sendResponseHeaders(400,response.getBytes().length);
+                try(OutputStream os = exchange.getResponseBody()){
+                    os.write(response.getBytes());
                 }
                 return;
             }
 
-            // if everything is correct, then do parsing
-            try {
-                String boundary = contentType.substring(contentType.indexOf("boundary=") + 9);    // bounadry is present in http request header
+            try{
+                String boundary = contentType.substring(contentType.indexOf("boundary=")+9);
+
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
-
-                IOUtils.copy(exchange.getRequestBody(), baos);
+                IOUtils.copy(exchange.getRequestBody(),baos);
                 byte[] requestData = baos.toByteArray();
 
-                // now call multiparser to parse the request data
-                Multiparser parser = new Multiparser(requestData, boundary);
-                Multiparser.ParseResult result = parser.parse();   // this will return fileName and fileContent
+                MultiParser parser = new MultiParser(requestData,boundary);
+                MultiParser.ParseResult result = parser.parse();
 
-                if (result == null) {
-                    String response = "Bad request: Could not parse file content";
-                    exchange.sendResponseHeaders(400, response.getBytes().length);
-                    try (OutputStream oos = exchange.getResponseBody()) {
-                        oos.write(response.getBytes());
+                if(result == null){
+                    String response = "Bad Request: Could not parse file content";
+                    exchange.sendResponseHeaders(400,response.getBytes().length);
+                    try(OutputStream os = exchange.getResponseBody()){
+                        os.write(response.getBytes());
                     }
                     return;
                 }
 
-                String fileName = result.fileName;
-                if (fileName == null || fileName.trim().isEmpty()) {
-                    fileName = "unnamed-file";
-                }
-                String uniqueFileName = UUID.randomUUID().toString() + "_" + new File(fileName).getName();
-                String filePath = uploadDir + File.separator + uniqueFileName;
-
-                try (FileOutputStream fos = new FileOutputStream(filePath)) {
-                    fos.write(result.fileContent);  // temporarily write the file content on the server
+                String filename = result.filename;
+                if(filename == null || filename.trim().isEmpty()){
+                    filename = "unnamed-file";
                 }
 
-                // fileSharer will offer a port to the user who uploaded the file
-                int port = fileSharer.offerFile(filePath);  // providing the absolute path to the fileSharer
-                new Thread(() -> fileSharer.startFileServer(port)).start(); // thread handles a sharing task
-                String jsonResponse = "{\"port\": " + port + "}";   // sending json format after stringify
-                headers.add("Content-Type", "application/json");
-                exchange.sendResponseHeaders(200, jsonResponse.getBytes().length);
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(jsonResponse.getBytes());
+                String uniqueFilename = UUID.randomUUID().toString() + "_" + new File(filename).getName();
+                String filePath = uploadDir + File.separator + uniqueFilename;
+
+                try(FileOutputStream fos = new FileOutputStream(filePath)){
+                    fos.write(result.fileContent);
                 }
 
-            } catch (Exception e) {
-                System.err.println("Error processing file upload: " + e.getMessage());
-                String response = "Server error: " + e.getMessage();
-                exchange.sendResponseHeaders(500, response.getBytes().length);
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(response.getBytes());
+                int port = fileSharer.offerFile(filePath);
+
+
+                new Thread(() -> fileSharer.startFileServer(port)).start();
+
+                String jsonResponse = "{\"port\": " + port + "}";
+                headers.add("Content-Type","application/json");
+                exchange.sendResponseHeaders(200,jsonResponse.getBytes().length);
+                try(OutputStream os = exchange.getResponseBody()){
+                    os.write(jsonResponse.getBytes());
+                }
+            }catch (Exception ex){
+                System.err.println("Error processing file upload: " + ex.getMessage());
+                String response = "Server error: " + ex.getMessage();
+                exchange.sendResponseHeaders(500,response.getBytes().length);
+                try(OutputStream os = exchange.getResponseBody()){
+                    os.write(response.getBytes());
                 }
             }
-
         }
     }
 
-    private class DownloadHandler implements HttpHandler {
-
+    private  class DownloadHandler implements HttpHandler{
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             Headers headers = exchange.getResponseHeaders();
             headers.add("Access-Control-Allow-Origin", "*");
 
             if (!exchange.getRequestMethod().equalsIgnoreCase("GET")) {
-                String response = "Methos not allowed";
+                String response = "Method not allowed";
                 exchange.sendResponseHeaders(405, response.getBytes().length);
-
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(response.getBytes());
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.getBytes());
                 }
                 return;
             }
 
-            String path = exchange.getRequestURI().getPath();   // the url basically containing the port as param
-            String portStr = path.substring(path.lastIndexOf('/') + 1);   // extracting the port number in string
+
+            String path = exchange.getRequestURI().getPath();
+            String portStr = path.substring(path.lastIndexOf('/') + 1);
 
             try {
-                int port = Integer.parseInt(portStr);   // converting the port into int from string
+                int port = Integer.parseInt(portStr);
 
-                try (Socket socket = new Socket("localhost", port)) {
-                    InputStream socketInput = socket.getInputStream();
-                    File tempFile = File.createTempFile("download-", ".tmp");   // temporary file to hold data of file sent from fileSharer before sending back to the requested user
-                    String fileName = "downloaded-file";
+                try (Socket socket = new Socket("localhost", port);
+                     InputStream socketInput = socket.getInputStream()) {
 
-                    try (FileOutputStream fos = new FileOutputStream(tempFile)) {   // reading the data from fileSharer to my temp file
+                    File tempFile = File.createTempFile("download-",".tmp");
+                    String filename = "downloaded-file";
+
+                    try(FileOutputStream fos = new FileOutputStream(tempFile)){
                         byte[] buffer = new byte[4096];
                         int bytesRead;
+
                         ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
                         int b;
-                        while ((b = socketInput.read()) != -1) {
-                            if (b == '\n') {
-                                break;
-                            }
+                        while((b = socketInput.read())!=-1){
+                            if(b == '\n') break;
                             headerBaos.write(b);
                         }
-                        String header = headerBaos.toString().trim();
 
-                        if (header.startsWith("Filename: ")) {
-                            fileName = header.substring("Filename: ".length());
+                        String header = headerBaos.toString().trim();
+                        if(header.startsWith("Filename: ")){
+                            filename = header.substring("Filename: ".length());
+                        }else{
+                            tempFile.delete();
+                            String response = "File no longer available";
+                            exchange.sendResponseHeaders(404, response.getBytes().length);
+                            try(OutputStream os = exchange.getResponseBody()){
+                                os.write(response.getBytes());
+                            }
+                            return;
                         }
 
-                        while ((bytesRead = socketInput.read(buffer)) != -1) {
-                            fos.write(buffer, 0, bytesRead);
+                        long totalBytesRead = 0;
+                        while((bytesRead = socketInput.read(buffer)) != -1){
+                            fos.write(buffer,0,bytesRead);
+                            totalBytesRead += bytesRead;
+                        }
+
+                        if(totalBytesRead == 0) {
+                            tempFile.delete();
+                            String response = "File no longer available";
+                            exchange.sendResponseHeaders(404, response.getBytes().length);
+                            try(OutputStream os = exchange.getResponseBody()){
+                                os.write(response.getBytes());
+                            }
+                            return;
                         }
                     }
-                    headers.add("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-                    headers.add("Content-Type", "application/octet-stream");
+
+                    headers.add("Content-Disposition","attachment; filename=\"" + filename + "\"");
+                    headers.add("Content-Type","application/octet-stream");
+
                     exchange.sendResponseHeaders(200, tempFile.length());
-                    try (OutputStream oos = exchange.getResponseBody()) {
-                        FileInputStream fis = new FileInputStream(tempFile); // write the file content onto the socket to send the user
+                    try(OutputStream os = exchange.getResponseBody();
+                        FileInputStream fis = new FileInputStream(tempFile)){
                         byte[] buffer = new byte[4096];
-                        int bytesRead;
-                        while ((bytesRead = fis.read(buffer)) != -1) {
-                            oos.write(buffer, 0, bytesRead);
+                        int bytesread;
+                        while((bytesread = fis.read(buffer))!=-1){
+                            os.write(buffer,0,bytesread);
                         }
                     }
                     tempFile.delete();
-                }
-            } catch (Exception e) {
-                System.out.println("Error downloading the file: "+e.getMessage());
-                String response = "Error downloading file "+e.getMessage();
-                headers.add("Content-Type", "text/plain");
-                exchange.sendResponseHeaders(500, response.getBytes().length);
-                try (OutputStream oos = exchange.getResponseBody()) {
-                    oos.write(response.getBytes());
-                }
-            }
-        }
-    }
-
-    // for multi parser only, we are not using spring boot or any framework so that can implement on our own
-    private static class Multiparser {
-
-        private final byte[] data;
-        private final String boundary;
-
-        public Multiparser(byte[] data, String boundary) {
-            this.data = data;
-            this.boundary = boundary;
-        }
-
-        public ParseResult parse() {
-            try {
-                String dataAsString = new String(data); // convert the byte array data into string, only pdf or text file (not blob object)
-                String fileNameMarker = "filename=\"";
-                int filenameStart = dataAsString.indexOf(fileNameMarker);
-                if (filenameStart == -1) {
-                    return null;    // filenameStart doesn't exist
-                }
-
-                filenameStart += fileNameMarker.length();
-                int filenameEnd = dataAsString.indexOf("\"", filenameStart);
-                String fileName = dataAsString.substring(filenameStart, filenameEnd);
-
-                String contentTypeMarker = "Content-Type: ";
-
-                int contentTypeStart = dataAsString.indexOf(contentTypeMarker, filenameEnd);
-                String contentType = "application/octet-stream";
-                if (contentTypeStart != -1) {
-                    contentTypeStart += contentTypeMarker.length();
-                    int contentTypeEnd = dataAsString.indexOf("\r\n", contentTypeStart);
-                    contentType = dataAsString.substring(contentTypeStart, contentTypeEnd);
-                }
-
-                String headerEndMarker = "\r\n\r\n";        // it is standart in HTTP1.1
-                int headerEnd = dataAsString.indexOf(headerEndMarker);
-                if (headerEnd == -1) {
-                    return null;
-                }
-
-                int contentStart = headerEnd + headerEndMarker.length();
-
-                byte[] boundaryBytes = ("\r\n--" + boundary + "--").getBytes();
-                int contentEnd = findSequence(data, boundaryBytes, contentStart);
-
-                if (contentEnd == -1) {
-                    boundaryBytes = ("\r\n--" + boundary).getBytes();     // try to find the end without "--"
-                    contentEnd = findSequence(data, boundaryBytes, contentStart);
-                }
-
-                if (contentEnd == -1) {
-                    return null;
-                }
-
-                byte[] fileContent = new byte[contentEnd - contentStart];
-                System.arraycopy(data, contentStart, fileContent, 0, fileContent.length);
-                return new ParseResult(fileName, fileContent, contentType);
-            } catch (Exception e) {
-                System.out.println("Error parsing multi-part data: " + e.getMessage());
-                return null;
-            }
-        }
-
-        public static class ParseResult {
-
-            public final String fileName;
-            public final byte[] fileContent;
-            public final String contentType;
-
-            public ParseResult(String fileName, byte[] fileContent, String contentType) {
-                this.fileName = fileName;
-                this.fileContent = fileContent;
-                this.contentType = contentType;
-            }
-        }
-
-        private static int findSequence(byte[] data, byte[] sequence, int startPos) {
-            // the whole purpose of this code is that , go through the entire content and find the occurence of particular word that's it
-            outer:
-            for (int i = 0; i <= data.length - sequence.length; i++) {
-                for (int j = 0; j < sequence.length; j++) {
-                    if (data[i + j] != sequence[j]) {
-                        continue outer;     // outer is a way to write a recursive code in java
+                }catch (IOException e){
+                    System.err.println("Error downloading file from peer: " + e.getMessage());
+                    String response = "Error downloading file: " + e.getMessage();
+                    exchange.sendResponseHeaders(500,response.getBytes().length);
+                    try(OutputStream os = exchange.getResponseBody()){
+                        os.write(response.getBytes());
                     }
                 }
-                return i;
+
+            } catch (NumberFormatException e) {
+                String response = "Bad response: Invalid Port number";
+                exchange.sendResponseHeaders(400,response.getBytes().length);
+                try(OutputStream os = exchange.getResponseBody()){
+                    os.write(response.getBytes());
+                }
             }
-            return -1;
         }
     }
 }
