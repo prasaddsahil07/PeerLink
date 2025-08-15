@@ -92,7 +92,7 @@ public class FileController {
         if(files == null) return;
 
         long now = System.currentTimeMillis();
-        long cutoff = now - (30 * 60 * 1000L);
+        long cutoff = now - (5 * 60 * 1000L);
 
 
         for (File file : files) {
