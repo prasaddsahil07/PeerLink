@@ -1,13 +1,13 @@
-# Stage 1: Build
-FROM maven:3.9.6-eclipse-temurin-17 AS build
-WORKDIR /app
-COPY pom.xml .
-COPY src ./src
-RUN mvn clean package -DskipTests
-
-# Stage 2: Run
 FROM openjdk:17-slim
+
+# Set working directory
 WORKDIR /app
-COPY --from=build /app/target/p2p-1.0-SNAPSHOT.jar app.jar
+
+# Copy the JAR file
+COPY target/p2p-1.0-SNAPSHOT.jar app.jar
+
+# Expose the correct port (8080, not 8000)
 EXPOSE 8080
+
+# Run the application
 CMD ["java", "-jar", "app.jar"]
