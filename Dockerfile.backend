@@ -1,5 +1,13 @@
 FROM openjdk:17-slim
+
+# Set working directory
 WORKDIR /app
+
+# Copy the JAR file
 COPY target/p2p-1.0-SNAPSHOT.jar app.jar
-EXPOSE 8000
+
+# Expose the correct port (8080, not 8000)
+EXPOSE 8080
+
+# Run the application
 CMD ["java", "-jar", "app.jar"]

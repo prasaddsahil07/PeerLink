@@ -6,6 +6,27 @@ target/
 *.war
 *.ear
 
+# IDE files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
 # Next.js
 ui/node_modules/
 ui/.next/
@@ -13,5 +34,11 @@ ui/out/
 ui/build/
 ui/dist/
 ui/.env
+ui/.env.local
+ui/.env.development.local
+ui/.env.test.local
+ui/.env.production.local
 
-target
+# Temporary files
+*.tmp
+*.temp

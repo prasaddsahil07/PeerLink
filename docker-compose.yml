@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - JAVA_OPTS=-Xmx512m
+    restart: unless-stopped
+    networks:
+      - peerlink-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+    restart: unless-stopped
+    networks:
+      - peerlink-network
+
+networks:
+  peerlink-network:
+    driver: bridge
+
+volumes:
+  logs:
