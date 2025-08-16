@@ -1,22 +1,14 @@
-FROM node:18-alpine
-
-# Set working directory
+# Build stage
+FROM node:18-alpine AS builder
 WORKDIR /app
-
-# Copy package files
 COPY ui/package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy source code
+RUN npm ci
 COPY ui/ ./
-
-# Build the application
 RUN npm run build
 
-# Expose port
+# Production stage
+FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
+COPY --from=builder /app/build ./
 EXPOSE 3000
-
-# Start the application
-CMD ["npm", "start"]
+CMD ["nginx", "-g", "daemon off;"]
