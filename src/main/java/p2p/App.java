@@ -10,7 +10,7 @@ public class App {
         try {
             int port = 8080;
 
-            // Read Render's PORT env variable if available
+            // Read cloud service's PORT env variable if available
             String portEnv = System.getenv("PORT");
             if (portEnv != null) {
                 try {
