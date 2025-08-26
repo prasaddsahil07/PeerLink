@@ -1,13 +1,24 @@
+FROM maven:3.9-openjdk-17-slim AS build
+
+WORKDIR /build
+
+COPY pom.xml .
+COPY src ./src
+
+RUN mvn clean package
+
+
 FROM openjdk:17-slim
 
 # Set working directory
 WORKDIR /app
 
 # Copy the JAR file
-COPY target/p2p-1.0-SNAPSHOT.jar app.jar
+COPY --from=build /build/target/p2p-1.0-SNAPSHOT.jar app.jar
+COPY --from=build /build/target/dependencies/*.jar ./lib/
 
 # Expose the correct port (8080, not 8000)
 EXPOSE 8080
 
 # Run the application
-CMD ["java", "-jar", "app.jar"]
+CMD ["java", "-cp", "app.jar:lib/*", "p2p.App"]
