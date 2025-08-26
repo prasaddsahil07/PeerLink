@@ -103,7 +103,7 @@ export default function FileUpload() {
       try {
         await navigator.clipboard.writeText(uploadedPort.toString());
         setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
+        setTimeout(() => setIsCopied(false), 5000); // Reset after 5 seconds
       } catch (err) {
         console.error('Failed to copy to clipboard:', err);
       }
