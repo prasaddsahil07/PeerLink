@@ -26,7 +26,7 @@ export default function FileDownload() {
     setDownloadSuccess(false);
 
     try {
-      const response = await fetch(`http://localhost:8080/download/${port}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/download/${port}`, {
         method: 'GET',
       });
 
