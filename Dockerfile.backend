@@ -15,7 +15,7 @@ WORKDIR /app
 
 # Copy the JAR file
 COPY --from=build /build/target/peerlink-1.0-SNAPSHOT.jar app.jar
-COPY --from=build /build/target/dependencies/*.jar ./lib/
+# COPY --from=build /build/target/dependencies/*.jar ./lib/
 
 # Expose the correct port (8080, not 8000)
 EXPOSE 8080
