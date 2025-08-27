@@ -49,7 +49,8 @@ public class FileController {
         server.createContext("/upload", new UploadHandler());
         server.createContext("/download",new DownloadHandler());
         server.createContext("/",new CORSHandler());
-        server.setExecutor(executorService);    }
+        server.setExecutor(executorService);    
+    }
 
     public void start(){
         server.start();
