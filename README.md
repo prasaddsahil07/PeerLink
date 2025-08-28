@@ -51,6 +51,74 @@ PeerLink/
 - **Modern UI**: Dark theme with animations
 - **Real-time Progress**: Chunked file transfer
 
+## Low-Level Degisn(LLD) with UML Diagram
+classDiagram
+    %% Frontend Components
+    class NextJSApp {
+        +handleFileUpload()
+        +handleFileDownload()
+        +connectToPeer()
+    }
+    
+    class FileUploadComponent {
+        +handleDragDrop()
+        +validateFile()
+        +uploadFile()
+    }
+    
+    class FileDownloadComponent {
+        +enterInviteCode()
+        +downloadFile()
+        +showProgress()
+    }
+
+    %% Backend Components
+    class App {
+        +main()
+        +startServer()
+    }
+    
+    class FileController {
+        +uploadFile()
+        +generateInviteCode()
+        +validateInviteCode()
+    }
+    
+    class FileService {
+        +storeFile()
+        +createFileServer()
+        +handleFileTransfer()
+    }
+    
+    class FileUtils {
+        +validateFile()
+        +generatePort()
+        +cleanupResources()
+    }
+
+    %% Relationships
+    NextJSApp --> FileUploadComponent
+    NextJSApp --> FileDownloadComponent
+    FileUploadComponent --> FileController
+    FileDownloadComponent --> FileController
+    FileController --> FileService
+    FileService --> FileUtils
+
+    %% Data Flow
+    class DataFlow {
+        FileUpload
+        FileDownload
+        InviteCode
+        PortNumber
+    }
+
+    %% Component Notes
+    note for NextJSApp "Handles UI state and user interactions"
+    note for FileController "REST API endpoints for file operations"
+    note for FileService "Core business logic for file handling"
+    note for FileUtils "Utility functions for file operations"
+
+
 ## 🛠 Tech Stack
 - **Backend**: Java 17, HTTP Server, Socket Programming
 - **Frontend**: Next.js 14, TypeScript, Tailwind CSS
