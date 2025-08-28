@@ -53,7 +53,7 @@ PeerLink/
 
 ## Architecture Diagram
 
-<img width="2049" height="1272" alt="image" src="https://github.com/user-attachments/assets/2b1edd2f-6cd6-4ff9-9ba5-a8c6300d7130" />
+<img width="2049" height="1272" alt="image" src="https://github.com/user-attachments/assets/44f60923-7cc4-4708-8398-52127b1b96aa" />
 
 
 
