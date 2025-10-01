@@ -381,30 +381,16 @@ public class FileController {
                         byte[] buffer = new byte[4096];
                         int bytesRead;
 
-                        // ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
-                        // int b;
-                        // while((b = socketInput.read()) != -1){
-                        //     if(b == '\n')    break;
-                        //     headerBaos.write(b);
-                        // }
-
-                        // String header = headerBaos.toString().trim();
-                        // if(header.startsWith("Filename: ")){
-                        //     filename = header.substring("Filename: ".length());
-                        // }
-
-
                         ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
                         int b;
                         while((b = socketInput.read()) != -1){
-                            if(b == '\n') break;
-                            if(b != '\r') headerBaos.write(b);  // Skip \r characters
+                            if(b == '\n')    break;
+                            headerBaos.write(b);
                         }
-                        
-                        String header = new String(headerBaos.toByteArray(), "UTF-8").trim();
+
+                        String header = headerBaos.toString().trim();
                         if(header.startsWith("Filename: ")){
                             filename = header.substring("Filename: ".length());
-                            System.out.println("DEBUG: Extracted filename: '" + filename + "'");  // Debug line
                         }
 
                         while((bytesRead = socketInput.read(buffer)) != -1){
