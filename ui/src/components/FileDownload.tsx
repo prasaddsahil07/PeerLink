@@ -48,18 +48,8 @@ export default function FileDownload() {
       link.href = url;
 
       const headers = response.headers;
-      let contentDisposition = '';
-
-
-      for(const key in headers){
-        if(key.toLowerCase() === 'content-disposition'){
-          contentDisposition = headers[key];
-          break;
-        }
-      }
-
-      // Get filename from response headers
-      // const contentDisposition = response.headers.get('content-disposition');
+      // Simple and correct way
+      const contentDisposition = response.headers.get('content-disposition');
       let filename = 'downloaded-file';
       
       if (contentDisposition) {
@@ -68,6 +58,7 @@ export default function FileDownload() {
           filename = filenameMatch[1];
         }
       }
+      
 
       // Create blob and download
 
