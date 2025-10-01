@@ -108,7 +108,6 @@ public class FileSharer {
         try {
             fileUploadTimes.remove(new File(path).getCanonicalPath());
         } catch (IOException e) {
-            // Ignore
         }
     }
 
@@ -142,7 +141,8 @@ public class FileSharer {
                     long fileSize = file.length();
 
                     // Send header with file info
-                    String header = String.format("Filename: %s\nSize: %d\n", fileName, fileSize);
+                    // String header = String.format("Filename: %s\nSize: %d\n", fileName, fileSize);
+                    String header = "Filename: " + filename + "\n";
                     oos.write(header.getBytes());
 
                     // Send file in chunks with progress tracking
