@@ -142,7 +142,7 @@ public class FileSharer {
 
                     // Send header with file info
                     // String header = String.format("Filename: %s\nSize: %d\n", fileName, fileSize);
-                    String header = "Filename: " + filename + "\n";
+                    String header = "Filename: " + fileName + "\n";
                     oos.write(header.getBytes());
 
                     // Send file in chunks with progress tracking
