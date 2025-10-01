@@ -28,6 +28,7 @@ export default function FileDownload() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/download/${port}`, {
         method: 'GET',
+        responseType: 'blob',
       });
 
       if (!response.ok) {
@@ -40,27 +41,46 @@ export default function FileDownload() {
         }
       }
 
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+
+      const headers = response.headers;
+      let contentDisposition = '';
+
+
+      for(const key in headers){
+        if(key.toLowerCase() === 'content-disposition'){
+          contentDisposition = headers[key];
+          break;
+        }
+      }
+
       // Get filename from response headers
-      const contentDisposition = response.headers.get('content-disposition');
+      // const contentDisposition = response.headers.get('content-disposition');
       let filename = 'downloaded-file';
       
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
+        if (filenameMatch && filenameMatch.length === 2) {
           filename = filenameMatch[1];
         }
       }
 
       // Create blob and download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // const blob = await response.blob();
+      // const url = window.URL.createObjectURL(blob);
+      // const a = document.createElement('a');
+      // a.href = url;
+      // a.download = filename;
+      // a.click();
+      // window.URL.revokeObjectURL(url);
+      // document.body.removeChild(a);
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
 
       // Set success state
       setDownloadSuccess(true);
