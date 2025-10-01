@@ -391,10 +391,12 @@ public class FileController {
                             int b;
                             while((b = socketInput.read())!=-1){
                                 if(b == '\n') break;
-                                lineBaos.write(b);
+                                // lineBaos.write(b);
+                                if(b != '\r')    lineBaos.write(b);
                             }
                             
-                            String line = lineBaos.toString().trim();
+                            // String line = lineBaos.toString().trim();
+                            String line = new String(lineBaos.toByteArray(), "UTF-8").trim(); 
                             if(line.startsWith("Filename: ")){
                                 filename = line.substring("Filename: ".length());
                             } else if(line.startsWith("Size: ")){
