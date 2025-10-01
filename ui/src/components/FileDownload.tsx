@@ -40,7 +40,10 @@ export default function FileDownload() {
         }
       }
 
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      // const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
 
@@ -67,8 +70,7 @@ export default function FileDownload() {
       }
 
       // Create blob and download
-      // const blob = await response.blob();
-      // const url = window.URL.createObjectURL(blob);
+
       // const a = document.createElement('a');
       // a.href = url;
       // a.download = filename;
