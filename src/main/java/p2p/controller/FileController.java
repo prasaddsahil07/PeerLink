@@ -383,13 +383,13 @@ public class FileController {
 
                         ByteArrayOutputStream headerBaos = new ByteArrayOutputStream();
                         int b;
-                        while((b == socketInput.read()) != -1){
+                        while((b = socketInput.read()) != -1){
                             if(b == '\n')    break;
                             headerBaos.write(b);
                         }
 
-                        string header = headerBaos.toString().trim();
-                        if(header.startWith("Filename: ")){
+                        String header = headerBaos.toString().trim();
+                        if(header.startsWith("Filename: ")){
                             filename = header.substring("Filename: ".length());
                         }
 
