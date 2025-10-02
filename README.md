@@ -53,8 +53,8 @@ PeerLink/
 
 ## Architecture Diagram
 
-https://app.eraser.io/workspace/EIjwrSEX3iqXD8ZSsG0O?origin=share
 
+<img width="1101" height="435" alt="Screenshot (363)" src="https://github.com/user-attachments/assets/2cae85dd-b5f6-4557-a961-bec5596d8b98" />
 
 ## 🛠 Tech Stack
 - **Backend**: Java 17, HTTP Server, Socket Programming
