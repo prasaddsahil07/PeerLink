@@ -53,8 +53,7 @@ PeerLink/
 
 ## Architecture Diagram
 
-<img width="2049" height="1272" alt="image" src="https://github.com/user-attachments/assets/44f60923-7cc4-4708-8398-52127b1b96aa" />
-
+https://app.eraser.io/workspace/EIjwrSEX3iqXD8ZSsG0O?origin=share
 
 
 ## 🛠 Tech Stack
